@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Server Learning Guide - RANK, JOINS, CTEs, and Temp Tables</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 10px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        h2 {
+            margin-top: 40px;
+            font-size: 1.8em;
+        }
+        h3 {
+            font-size: 1.3em;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #0056b3;
+            color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        pre {
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            line-height: 1.4;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        .tip {
+            background-color: #e8f4f8;
+            border-left: 4px solid #0056b3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 3px;
+        }
+        .tip strong {
+            color: #0056b3;
+        }
+        .section {
+            background-color: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .cheat-sheet {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 3px;
+        }
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+
+<h1>SQL Server Learning Guide</h1>
+<p style="text-align: center; font-size: 1.1em; color: #666;">
+    Window Functions • Temp Tables • CTEs • Joins • Best Practices
+</p>
+
+<div class="section">
+    <h2>Part 1: RANK vs DENSE_RANK vs ROW_NUMBER</h2>
+    
+    <p>These <strong>window functions</strong> assign sequence numbers to rows. They differ in handling ties.</p>
+    
+    <h3>Quick Comparison</h3>
+    <table>
+        <tr>
+            <th>Scenario</th>
+            <th>ROW_NUMBER</th>
+            <th>RANK</th>
+            <th>DENSE_RANK</th>
+        </tr>
+        <tr>
+            <td><strong>Handles Ties</strong></td>
+            <td>Every row gets unique number</td>
+            <td>Ties get same rank, gaps after</td>
+            <td>Ties get same rank, no gaps</td>
+        </tr>
+        <tr>
+            <td><strong>Use Case</strong></td>
+            <td>Pagination, unique identification</td>
+            <td>Competition scoring</td>
+            <td>Continuous ranking</td>
+        </tr>
+        <tr>
+            <td><strong>Example</strong></td>
+            <td>1, 2, 3, 4, 5</td>
+            <td>1, 2, 2, 4, 5</td>
+            <td>1, 2, 2, 3, 4</td>
+        </tr>
+    </table>
+
+    <h3>Template (Basic Syntax)</h3>
+    <pre><code>SELECT 
+    column_name,
+    ROW_NUMBER() OVER (ORDER BY column_name) AS row_num,
+    RANK() OVER (ORDER BY column_name) AS rank_value,
+    DENSE_RANK() OVER (ORDER BY column_name) AS dense_rank_value
+FROM table_name;</code></pre>
+
+    <h3>Real Example: Trade Type Analysis</h3>
+    <pre><code>;WITH TradeStats AS (
+    SELECT 
+        TradeType,
+        COUNT(*) AS FrequencyCount
+    FROM [repo].[tbltradetype]
+    GROUP BY TradeType
+)
+SELECT 
+    TradeType,
+    FrequencyCount,
+    -- ROW_NUMBER: Unique number for each row (1, 2, 3...)
+    ROW_NUMBER() OVER (ORDER BY FrequencyCount DESC) AS rn_unique,
+    
+    -- RANK: Skips numbers after ties (1, 2, 2, 4...)
+    RANK() OVER (ORDER BY FrequencyCount DESC) AS rank_with_gap,
+    
+    -- DENSE_RANK: No gaps (1, 2, 2, 3...)
+    DENSE_RANK() OVER (ORDER BY FrequencyCount DESC) AS dense_rank_no_gap
+FROM TradeStats
+ORDER BY FrequencyCount DESC;</code></pre>
+
+    <div class="tip">
+        <strong>💡 Pro Tip 1: PARTITION BY</strong><br>
+        Use <code>PARTITION BY</code> to group before ranking:
+        <pre><code>ROW_NUMBER() OVER (PARTITION BY TradeType ORDER BY TradeID) AS seq_per_trade</code></pre>
+    </div>
+
+    <div class="tip">
+        <strong>💡 Pro Tip 2: Top N Per Group</strong><br>
+        Get top 3 items per trade type:
+        <pre><code>;WITH RankedTrades AS (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY TradeType ORDER BY TradeID DESC) AS rn
+    FROM [repo].[tbltradetype]
+)
+SELECT * FROM RankedTrades WHERE rn <= 3;</code></pre>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Part 2: Temp Table vs Table Variable vs CTE</h2>
+    
+    <h3>Quick Comparison</h3>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>#Temp Table</th>
+            <th>@Table Variable</th>
+            <th>CTE</th>
+        </tr>
+        <tr>
+            <td><strong>Scope</strong></td>
+            <td>Session-level (multiple batches)</td>
+            <td>Batch-level (single batch only)</td>
+            <td>Single query only</td>
+        </tr>
+        <tr>
+            <td><strong>Persistence</strong></td>
+            <td>Physically stored in tempdb</td>
+            <td>In-memory (mostly)</td>
+            <td>Virtual (doesn't persist)</td>
+        </tr>
+        <tr>
+            <td><strong>Indexes</strong></td>
+            <td>Can create indexes</td>
+            <td>No indexes allowed</td>
+            <td>No indexes</td>
+        </tr>
+        <tr>
+            <td><strong>Performance</strong></td>
+            <td>Good for large datasets</td>
+            <td>Good for small datasets</td>
+            <td>Best for readable queries</td>
+        </tr>
+        <tr>
+            <td><strong>Best For</strong></td>
+            <td>Multi-step processing</td>
+            <td>Single-batch calculations</td>
+            <td>Recursive queries, readability</td>
+        </tr>
+    </table>
+
+    <h3>Template 1: Temp Table</h3>
+    <pre><code>CREATE TABLE #temp_table_name (
+    column_name data_type,
+    column_name data_type
+);
+
+INSERT INTO #temp_table_name SELECT ...
+SELECT * FROM #temp_table_name;
+
+DROP TABLE #temp_table_name;  -- Auto-drops when session ends</code></pre>
+
+    <h3>Example 1: Temp Table - Multi-Step Analysis</h3>
+    <pre><code>-- STEP 1: Create temp table
+CREATE TABLE #TradeTypeStats (
+    TradeType NVARCHAR(50),
+    TradeCount INT,
+    ProcessedDate DATETIME DEFAULT GETDATE()
+);
+
+-- STEP 2: Populate
+INSERT INTO #TradeTypeStats (TradeType, TradeCount)
+SELECT TradeType, COUNT(*) FROM [repo].[tbltradetype]
+GROUP BY TradeType;
+
+-- STEP 3: Use multiple times
+SELECT * FROM #TradeTypeStats WHERE TradeCount > 10;
+SELECT TOP 3 * FROM #TradeTypeStats ORDER BY TradeCount DESC;
+SELECT SUM(TradeCount) AS TotalTrades FROM #TradeTypeStats;
+
+DROP TABLE #TradeTypeStats;</code></pre>
+
+    <h3>Template 2: Table Variable</h3>
+    <pre><code>DECLARE @table_variable_name TABLE (
+    column_name data_type,
+    column_name data_type
+);
+
+INSERT INTO @table_variable_name SELECT ...
+SELECT * FROM @table_variable_name;</code></pre>
+
+    <h3>Example 2: Table Variable - Single Batch</h3>
+    <pre><code>DECLARE @TradeStats TABLE (
+    TradeType NVARCHAR(50),
+    TradeCount INT
+);
+
+INSERT INTO @TradeStats (TradeType, TradeCount)
+SELECT TradeType, COUNT(*) 
+FROM [repo].[tbltradetype]
+GROUP BY TradeType;
+
+SELECT * FROM @TradeStats;
+SELECT AVG(TradeCount) AS AvgCount FROM @TradeStats;</code></pre>
+
+    <h3>Template 3: CTE (Common Table Expression)</h3>
+    <pre><code>WITH cte_name AS (
+    SELECT column_name FROM table_name WHERE condition
+)
+SELECT * FROM cte_name;</code></pre>
+
+    <h3>Example 3: CTE - Readable Multi-Step Query</h3>
+    <pre><code>WITH TradeTypeStats AS (
+    -- Step 1: Calculate stats
+    SELECT 
+        TradeType,
+        COUNT(*) AS TradeCount,
+        MAX(TradeID) AS MaxTradeID
+    FROM [repo].[tbltradetype]
+    GROUP BY TradeType
+),
+FilteredStats AS (
+    -- Step 2: Filter
+    SELECT * FROM TradeTypeStats WHERE TradeCount > 0
+),
+FinalResults AS (
+    -- Step 3: Calculate percentage
+    SELECT 
+        TradeType,
+        TradeCount,
+        ROUND(CAST(TradeCount AS FLOAT) / (SELECT SUM(TradeCount) FROM FilteredStats) * 100, 2) AS PercentageOfTotal
+    FROM FilteredStats
+)
+SELECT * FROM FinalResults ORDER BY TradeCount DESC;</code></pre>
+
+    <div class="cheat-sheet">
+        <strong>When to Use What:</strong><br>
+        <ul>
+            <li>Use <strong>#Temp Table</strong> for large datasets processed in multiple steps</li>
+            <li>Use <strong>@Table Variable</strong> for small lookup data in a single batch</li>
+            <li>Use <strong>CTE</strong> to make complex queries readable</li>
+        </ul>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Part 3: Join Types Explained</h2>
+    
+    <h3>Join Types Overview</h3>
+    <table>
+        <tr>
+            <th>Join Type</th>
+            <th>Returns</th>
+            <th>Use When</th>
+        </tr>
+        <tr>
+            <td><strong>INNER JOIN</strong></td>
+            <td>Only matching rows from both tables</td>
+            <td>You need data that exists in BOTH tables</td>
+        </tr>
+        <tr>
+            <td><strong>LEFT OUTER JOIN</strong></td>
+            <td>All from LEFT + matching from RIGHT</td>
+            <td>You want all from left, even if no match</td>
+        </tr>
+        <tr>
+            <td><strong>RIGHT OUTER JOIN</strong></td>
+            <td>Matching from LEFT + all from RIGHT</td>
+            <td>You want all from right, even if no match</td>
+        </tr>
+        <tr>
+            <td><strong>FULL OUTER JOIN</strong></td>
+            <td>All rows from BOTH tables</td>
+            <td>You want everything, matched or not</td>
+        </tr>
+        <tr>
+            <td><strong>SELF JOIN</strong></td>
+            <td>Table joined to itself</td>
+            <td>Comparing rows within same table</td>
+        </tr>
+        <tr>
+            <td><strong>CROSS JOIN</strong></td>
+            <td>Cartesian product</td>
+            <td>Every row from A with every row from B</td>
+        </tr>
+    </table>
+
+    <h3>Template 1: INNER JOIN</h3>
+    <pre><code>SELECT 
+    table_a.column_name,
+    table_b.column_name
+FROM table_a
+INNER JOIN table_b ON table_a.key = table_b.key;</code></pre>
+
+    <h3>Example 1: INNER JOIN</h3>
+    <pre><code>-- Only trades with matching trade type
+SELECT 
+    t.TradeID,
+    t.TradeType,
+    tt.TypeCode
+FROM [repo].[tbltradetype] t
+INNER JOIN [repo].[tbltradetype] tt ON t.TradeType = tt.TradeType;</code></pre>
+
+    <h3>Template 2: LEFT OUTER JOIN</h3>
+    <pre><code>SELECT 
+    table_a.column_name,
+    table_b.column_name
+FROM table_a
+LEFT OUTER JOIN table_b ON table_a.key = table_b.key;</code></pre>
+
+    <h3>Example 2: LEFT OUTER JOIN</h3>
+    <pre><code>-- All trades from left, even if no match
+SELECT 
+    t.TradeID,
+    t.TradeType,
+    t.TypeCode,
+    ISNULL(tt.TypeCode, 'NO_MATCH') AS MatchedCode
+FROM [repo].[tbltradetype] t
+LEFT OUTER JOIN [repo].[tbltradetype] tt ON t.TradeType = tt.TradeType 
+    AND tt.Active = 1;</code></pre>
+
+    <h3>Template 3: FULL OUTER JOIN</h3>
+    <pre><code>SELECT 
+    table_a.column_name,
+    table_b.column_name
+FROM table_a
+FULL OUTER JOIN table_b ON table_a.key = table_b.key;</code></pre>
+
+    <h3>Example 3: FULL OUTER JOIN</h3>
+    <pre><code>-- All rows from both tables
+SELECT 
+    COALESCE(t.TradeID, tt.TradeID) AS TradeID,
+    t.TradeType AS LeftTradeType,
+    tt.TradeType AS RightTradeType
+FROM [repo].[tbltradetype] t
+FULL OUTER JOIN [repo].[tbltradetype] tt ON t.TradeType = tt.TradeType;</code></pre>
+
+    <h3>Template 4: SELF JOIN</h3>
+    <pre><code>SELECT 
+    t1.column_name,
+    t2.column_name
+FROM table_name t1
+INNER JOIN table_name t2 ON t1.key = t2.related_key;</code></pre>
+
+    <h3>Example 4: SELF JOIN</h3>
+    <pre><code>-- Find trades sharing same type code
+SELECT 
+    t1.TradeID AS TradeID_1,
+    t1.TradeType AS TradeType_1,
+    t2.TradeID AS TradeID_2,
+    t2.TradeType AS TradeType_2
+FROM [repo].[tbltradetype] t1
+INNER JOIN [repo].[tbltradetype] t2 
+    ON t1.TypeCode = t2.TypeCode 
+    AND t1.TradeID < t2.TradeID;</code></pre>
+
+    <h3>Template 5: CROSS JOIN</h3>
+    <pre><code>SELECT 
+    table_a.column_name,
+    table_b.column_name
+FROM table_a
+CROSS JOIN table_b;</code></pre>
+
+    <h3>Example 5: CROSS JOIN</h3>
+    <pre><code>-- Create all combinations (3 types × 3 years = 9 rows)
+DECLARE @TradeTypes TABLE (TradeType NVARCHAR(50));
+INSERT INTO @TradeTypes VALUES ('FX'), ('EQ'), ('FI');
+
+DECLARE @Years TABLE (YearValue INT);
+INSERT INTO @Years VALUES (2024), (2025), (2026);
+
+SELECT 
+    tt.TradeType,
+    y.YearValue,
+    CONCAT(tt.TradeType, '_', y.YearValue) AS CombinationCode
+FROM @TradeTypes tt
+CROSS JOIN @Years y;</code></pre>
+
+    <div class="tip">
+        <strong>💡 Tip: NULL Handling in Outer Joins</strong><br>
+        Always check for NULLs to detect unmatched rows:
+        <pre><code>WHERE joined_table.key IS NULL  -- Find unmatched rows</code></pre>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Part 4: Pro Tips & Tricks</h2>
+    
+    <h3>Tip 1: Multiple Joins Chaining</h3>
+    <pre><code>SELECT t1.*, t2.*, t3.*
+FROM Table1 t1
+INNER JOIN Table2 t2 ON t1.ID = t2.ID
+LEFT JOIN Table3 t3 ON t2.ID = t3.ID
+INNER JOIN Table4 t4 ON t3.ID = t4.ID;</code></pre>
+
+    <h3>Tip 2: CTE vs Subquery</h3>
+    <pre><code>-- CTE (more readable, reusable)
+WITH Stats AS (
+    SELECT TradeType, COUNT(*) AS Cnt FROM [repo].[tbltradetype] GROUP BY TradeType
+)
+SELECT * FROM Stats WHERE Cnt > 1;
+
+-- Subquery (older, harder to read)
+SELECT * FROM (
+    SELECT TradeType, COUNT(*) AS Cnt FROM [repo].[tbltradetype] GROUP BY TradeType
+) AS Stats
+WHERE Cnt > 1;</code></pre>
+
+    <h3>Tip 3: Recursive CTE for Hierarchies</h3>
+    <pre><code>WITH RecursiveHierarchy AS (
+    -- Anchor: start with top-level
+    SELECT ID, TradeType, 1 AS Level
+    FROM [repo].[tbltradetype]
+    WHERE TradeID = 1
+    
+    UNION ALL
+    
+    -- Recursive: find children
+    SELECT t.ID, t.TradeType, r.Level + 1
+    FROM [repo].[tbltradetype] t
+    INNER JOIN RecursiveHierarchy r ON t.TradeID = r.ID
+    WHERE r.Level < 10  -- Safety limit
+)
+SELECT * FROM RecursiveHierarchy;</code></pre>
+
+    <h3>Tip 4: Performance - Filter in JOIN Condition</h3>
+    <pre><code>-- BETTER: Filter in JOIN (more efficient)
+SELECT *
+FROM [repo].[tbltradetype] t1
+INNER JOIN [repo].[tbltradetype] t2 ON t1.TradeID = t2.TradeID
+    AND t1.Active = 1;  -- Filter during join, not after</code></pre>
+
+    <h3>Tip 5: Avoid N+1 Query Problem</h3>
+    <pre><code>-- GOOD: Single join query instead of loop
+SELECT t.*, tt.*
+FROM [repo].[tbltradetype] t
+LEFT JOIN [repo].[tbltradetype] tt ON t.TradeType = tt.TradeType;</code></pre>
+</div>
+
+<div class="cheat-sheet" style="margin-top: 40px;">
+    <h2>Quick Reference Cheat Sheet</h2>
+    <table>
+        <tr>
+            <th>Question</th>
+            <th>Answer</th>
+        </tr>
+        <tr>
+            <td>Unique sequence numbers?</td>
+            <td><code>ROW_NUMBER()</code></td>
+        </tr>
+        <tr>
+            <td>Olympic-style ranking?</td>
+            <td><code>RANK()</code></td>
+        </tr>
+        <tr>
+            <td>Continuous ranking?</td>
+            <td><code>DENSE_RANK()</code></td>
+        </tr>
+        <tr>
+            <td>Multi-step single batch?</td>
+            <td><code>@TableVariable</code></td>
+        </tr>
+        <tr>
+            <td>Multi-step session?</td>
+            <td><code>#TempTable</code></td>
+        </tr>
+        <tr>
+            <td>Make query readable?</td>
+            <td><code>CTE</code></td>
+        </tr>
+        <tr>
+            <td>Only matches?</td>
+            <td><code>INNER JOIN</code></td>
+        </tr>
+        <tr>
+            <td>Keep all from left?</td>
+            <td><code>LEFT JOIN</code></td>
+        </tr>
+        <tr>
+            <td>Compare within table?</td>
+            <td><code>SELF JOIN</code></td>
+        </tr>
+        <tr>
+            <td>All combinations?</td>
+            <td><code>CROSS JOIN</code></td>
+        </tr>
+        <tr>
+            <td>Everything?</td>
+            <td><code>FULL OUTER JOIN</code></td>
+        </tr>
+    </table>
+</div>
+
+<footer style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 2px solid #ddd; color: #666;">
+    <p>SQL Server Learning Guide - SQL 2019 Express Edition</p>
+    <p>Database: DbStore | Connection: (localdb)\MSSQLLocalDB</p>
+</footer>
+
+</body>
+</html>
